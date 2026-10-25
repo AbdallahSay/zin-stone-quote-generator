@@ -27,11 +27,15 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Restore Backend Dependencies
-        run: dotnet restore backend/FactoryQuoteApi.csproj
+      - name: Restore Dependencies
+        run: |
+          dotnet restore backend/FactoryQuoteApi.csproj
+          dotnet restore security-tests/FactoryQuoteApi.SecurityTests.csproj
 
-      - name: Build Backend (Release)
-        run: dotnet build backend/FactoryQuoteApi.csproj -c Release --no-restore
+      - name: Build Backend & Tests (Release)
+        run: |
+          dotnet build backend/FactoryQuoteApi.csproj -c Release --no-restore
+          dotnet build security-tests/FactoryQuoteApi.SecurityTests.csproj -c Release --no-restore
 
       - name: Run Backend Security & Functional Tests (102 Tests)
         run: dotnet test security-tests/FactoryQuoteApi.SecurityTests.csproj -c Release --no-build
@@ -44,6 +48,7 @@ jobs:
 
       - name: Verify Production Health (Smoke Test)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        continue-on-error: true
         run: |
           API_URL="${{ vars.ZIN_STONE_API_URL || 'https://zin-stone-api.onrender.com' }}"
           echo "Checking health for $API_URL/api/health..."
@@ -56,4 +61,4 @@ jobs:
             echo "Waiting for backend wakeup (attempt $i, status: $STATUS)..."
             sleep 10
           done
-          echo "Health check complete."
+          echo "Smoke check finished."

@@ -39,7 +39,7 @@ public class PdfConverterService : IPdfConverterService
             Directory.CreateDirectory(pdfDir);
         }
 
-        // 1. Primary: Use FreeSpire.Doc for true local DOCX to PDF conversion
+        // 1. Primary: Use FreeSpire.Doc for local in-process conversion
         try
         {
             _logger.LogInformation("Attempting PDF conversion via FreeSpire.Doc: {DocxPath} -> {PdfPath}", docxPath, pdfPath);
@@ -63,9 +63,49 @@ public class PdfConverterService : IPdfConverterService
             _logger.LogWarning(ex, "FreeSpire.Doc conversion failed. Attempting alternative converters.");
         }
 
-        // 2. Secondary: PDFShift API if configured
-        var apiKey = _configuration["PdfShift:ApiKey"];
-        if (!string.IsNullOrWhiteSpace(apiKey))
+        // 2. Linux Container Native: LibreOffice CLI (soffice)
+        try
+        {
+            var libreOfficeBinary = FindLibreOfficeBinary();
+            if (!string.IsNullOrEmpty(libreOfficeBinary))
+            {
+                _logger.LogInformation("Attempting PDF conversion via LibreOffice: {Binary}", libreOfficeBinary);
+                var targetDir = Path.GetDirectoryName(Path.GetFullPath(pdfPath))!;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = libreOfficeBinary,
+                    Arguments = $"--headless --convert-to pdf --outdir \"{targetDir}\" \"{docxPath}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = Process.Start(psi);
+                if (process != null)
+                {
+                    await process.WaitForExitAsync(cancellationToken);
+                    var expectedOutput = Path.Combine(targetDir, Path.GetFileNameWithoutExtension(docxPath) + ".pdf");
+                    if (File.Exists(expectedOutput) && new FileInfo(expectedOutput).Length > 0)
+                    {
+                        if (!string.Equals(Path.GetFullPath(expectedOutput), Path.GetFullPath(pdfPath), StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Move(expectedOutput, pdfPath, overwrite: true);
+                        }
+                        _logger.LogInformation("LibreOffice PDF conversion succeeded: {PdfPath}", pdfPath);
+                        return pdfPath;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LibreOffice conversion failed.");
+        }
+
+        // 3. Secondary: PDFShift API if configured
+        var apiKey = _configuration["PdfShift:ApiKey"] ?? Environment.GetEnvironmentVariable("PDFSHIFT_API_KEY");
+        if (!string.IsNullOrWhiteSpace(apiKey) && !apiKey.Contains("<YOUR_"))
         {
             try
             {
@@ -79,11 +119,11 @@ public class PdfConverterService : IPdfConverterService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "PDFShift API conversion failed. Falling back to local Python script.");
+                _logger.LogWarning(ex, "PDFShift API conversion failed.");
             }
         }
 
-        // 3. Fallback: Python docx_to_pdf.py if available
+        // 4. Fallback: Python docx_to_pdf.py if available
         var pythonScript = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "scripts", "docx_to_pdf.py"));
         var pythonVenv = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".venv", "Scripts", "python.exe"));
 
@@ -116,11 +156,6 @@ public class PdfConverterService : IPdfConverterService
                         _logger.LogInformation("Local Python PDF conversion succeeded: {PdfPath}", pdfPath);
                         return pdfPath;
                     }
-                    else
-                    {
-                        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
-                        _logger.LogWarning("Local Python PDF converter exited with code {Code}: {Err}", process.ExitCode, stderr);
-                    }
                 }
             }
             catch (Exception ex)
@@ -135,6 +170,30 @@ public class PdfConverterService : IPdfConverterService
         }
 
         throw new InvalidOperationException($"All PDF conversion strategies failed for '{docxPath}'.");
+    }
+
+    private static string? FindLibreOfficeBinary()
+    {
+        var candidates = OperatingSystem.IsWindows()
+            ? new[]
+            {
+                @"C:\Program Files\LibreOffice\program\soffice.exe",
+                @"C:\Program Files (x86)\LibreOffice\program\soffice.exe"
+            }
+            : new[]
+            {
+                "/usr/bin/soffice",
+                "/usr/bin/libreoffice",
+                "/usr/local/bin/soffice",
+                "/usr/local/bin/libreoffice"
+            };
+
+        foreach (var c in candidates)
+        {
+            if (File.Exists(c)) return c;
+        }
+
+        return OperatingSystem.IsWindows() ? null : "soffice";
     }
 
     private async Task<bool> ConvertViaPdfShiftAsync(string apiKey, string docxPath, string pdfPath, CancellationToken cancellationToken)

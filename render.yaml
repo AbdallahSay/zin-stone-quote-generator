@@ -1,0 +1,36 @@
+# ==============================================================================
+# Render Blueprint Specification for ZIN STONE Backend
+# Deploy free ASP.NET Core API Docker container on Render
+# ==============================================================================
+services:
+  - type: web
+    name: zin-stone-api
+    runtime: docker
+    plan: free
+    region: frankfurt # Low latency for Middle East / Egypt
+    dockerfilePath: Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false # Set in Render Dashboard with Supabase PostgreSQL URI
+      - key: SUPABASE_URL
+        sync: false # Set in Render Dashboard (e.g. https://xyz.supabase.co)
+      - key: SUPABASE_SERVICE_KEY
+        sync: false # Set in Render Dashboard (Supabase service_role secret key)
+      - key: SUPABASE_BUCKET
+        value: quotes-private
+      - key: Security__SigningKey
+        generateValue: true
+      - key: Security__DefaultOwnerPassword
+        sync: false
+      - key: Security__DefaultAdminPassword
+        sync: false
+      - key: Security__DefaultQuotePassword
+        sync: false
+      - key: WhatsApp__Enabled
+        value: "false"

@@ -6,15 +6,24 @@
     }
   },
   "ConnectionStrings": {
-    "DefaultConnection": "Server=<YOUR_MONSTERASP_MSSQL_HOST>;Database=<YOUR_DB_NAME>;User Id=<YOUR_DB_USER>;Password=<YOUR_DB_PASSWORD>;TrustServerCertificate=True;MultipleActiveResultSets=True;"
+    "DefaultConnection": "Host=db.<YOUR-PROJECT-REF>.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=<YOUR_PASSWORD>;SSL Mode=Require;"
+  },
+  "Supabase": {
+    "Url": "https://<YOUR-PROJECT-REF>.supabase.co",
+    "ServiceKey": "<YOUR_SUPABASE_SERVICE_ROLE_KEY>",
+    "Bucket": "quotes-private"
+  },
+  "WhatsApp": {
+    "Enabled": false
   },
   "Cors": {
     "AllowedOrigins": [
-      "https://factory-quote-frontend.vercel.app"
+      "https://zin-stone-quote-generator.netlify.app",
+      "https://zin-stone-api.onrender.com"
     ]
   },
   "Telegram": {
     "BotToken": "<YOUR_TELEGRAM_BOT_TOKEN>",
-    "ChatIds": "5600249013,1284402479"
+    "ChatIds": ""
   }
 }

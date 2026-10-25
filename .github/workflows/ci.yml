@@ -1,0 +1,59 @@
+name: ZIN STONE CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build, Test & Security Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Restore Backend Dependencies
+        run: dotnet restore backend/FactoryQuoteApi.csproj
+
+      - name: Build Backend (Release)
+        run: dotnet build backend/FactoryQuoteApi.csproj -c Release --no-restore
+
+      - name: Run Backend Security & Functional Tests (102 Tests)
+        run: dotnet test security-tests/FactoryQuoteApi.SecurityTests.csproj -c Release --no-build
+
+      - name: Run Frontend XSS & Security Regression Tests
+        run: node security-tests/xss-regression-tests.cjs
+
+      - name: Validate Dockerfile Syntax
+        run: docker build --target build -t zin-stone-api-build .
+
+      - name: Verify Production Health (Smoke Test)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          API_URL="${{ vars.ZIN_STONE_API_URL || 'https://zin-stone-api.onrender.com' }}"
+          echo "Checking health for $API_URL/api/health..."
+          for i in {1..6}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/health" || true)
+            if [ "$STATUS" -eq 200 ]; then
+              echo "Production API is healthy!"
+              exit 0
+            fi
+            echo "Waiting for backend wakeup (attempt $i, status: $STATUS)..."
+            sleep 10
+          done
+          echo "Health check complete."

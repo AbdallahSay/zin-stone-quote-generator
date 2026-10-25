@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>نظام إنشاء عروض الأسعار | مصنع المنتجات الإسمنتية</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <title>نظام إنشاء عروض الأسعار | ZIN STONE</title>
+    <link rel="icon" type="image/png" href="/zin-stone-logo.png">
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -34,7 +34,7 @@
                 <div class="text-right">
                     <label class="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني للموظف</label>
                     <input type="email" id="quoteEmailInput" autofocus required
-                        placeholder="employee@factory-eg.com"
+                        placeholder="employee@zinstone.example"
                         class="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm">
                 </div>
 
@@ -72,7 +72,7 @@
                     </svg>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold">مصنع الطوب الآلي والخرسانة</h1>
+                    <h1 class="text-lg font-bold">ZIN STONE | Building Materials Trading</h1>
                     <p class="text-xs text-blue-200">منظومة المبيعات وإصدار عروض الأسعار المعتمدة من القالب الأصلي</p>
                 </div>
             </div>
@@ -111,7 +111,7 @@
                     <!-- Client Name Input -->
                     <div>
                         <label class="block text-sm font-semibold text-slate-700 mb-1" for="clientNameInput">السادة شركة (اسم العميل) *</label>
-                        <input type="text" id="clientNameInput" list="clientsDatalist" placeholder="مثال: شركة اتريم للمقاولات والاعمال المتخصصة" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                        <input type="text" id="clientNameInput" list="clientsDatalist" placeholder="مثال: شركة المقاولات المستلمة للعرض" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
                         <datalist id="clientsDatalist"></datalist>
                     </div>
 
@@ -136,7 +136,7 @@
                     <!-- Project Name -->
                     <div>
                         <label class="block text-sm font-semibold text-slate-700 mb-1" for="projectName">اسم المشروع</label>
-                        <input type="text" id="projectName" placeholder="مثال: مشروع ابراج اتريم" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <input type="text" id="projectName" placeholder="مثال: مشروع التوريد" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     </div>
 
                     <!-- Location -->
@@ -181,13 +181,13 @@
                     <!-- Issuer Name -->
                     <div>
                         <label class="block text-sm font-semibold text-slate-700 mb-1" for="issuerName">الاسم</label>
-                        <input type="text" id="issuerName" placeholder="مثال: أشرف الشربيني" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <input type="text" id="issuerName" placeholder="مثال: يوسف زين الدين" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     </div>
 
                     <!-- Issuer Job Title -->
                     <div>
                         <label class="block text-sm font-semibold text-slate-700 mb-1" for="issuerJobTitle">الوظيفة</label>
-                        <input type="text" id="issuerJobTitle" placeholder="مثال: مدير تطوير الأعمال والمبيعات" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <input type="text" id="issuerJobTitle" placeholder="مثال: المدير المسؤول" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     </div>
 
                     <!-- Issuer Prefix -->
@@ -216,7 +216,7 @@
                     <p class="text-xs text-slate-500 mt-0.5">💡 الأعمدة الافتراضية الأربعة: النوع • المقاس • الحمولة • سعر الألف (تعديل جدول القالب مباشرة بدون إعادة بناء)</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button type="button" id="addColumnBtn" class="text-xs bg-blue-700 hover:bg-blue-800 text-white font-bold py-1.5 px-3 rounded-lg flex items-center gap-1 transition shadow-sm">
+                    <button type="button" id="addColumnBtn" disabled aria-hidden="true" style="display:none" class="text-xs bg-blue-700 hover:bg-blue-800 text-white font-bold py-1.5 px-3 rounded-lg flex items-center gap-1 transition shadow-sm">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                         + إضافة عمود
                     </button>
@@ -689,9 +689,11 @@
                     deleteColumn(idx);
                 });
 
-                wrapper.appendChild(handleSpan);
+                // ZIN STONE fixed-column layout: hide drag/reordering affordance.
+                // wrapper.appendChild(handleSpan);
                 wrapper.appendChild(titleSpan);
-                wrapper.appendChild(delBtn);
+                // ZIN STONE source template has 4 fixed columns: never display delete-column action.
+                // wrapper.appendChild(delBtn);
                 th.appendChild(wrapper);
 
                 tr.appendChild(th);
@@ -703,7 +705,8 @@
             actionTh.textContent = "إجراء";
             tr.appendChild(actionTh);
 
-            initSortable();
+            // ZIN STONE fixed-column layout: do not allow column reordering.
+            // initSortable();
         }
 
         function initSortable() {
@@ -743,6 +746,7 @@
         }
 
         function addColumn(initialName = null) {
+            return; // fixed template columns
             if (initialName) {
                 insertColumn(initialName);
                 return;
@@ -795,6 +799,7 @@
         }
 
         function deleteColumn(idx) {
+            return; // fixed template columns
             if (columns.length <= 1) {
                 Swal.fire({ title: 'خطأ!', text: 'يجب الإبقاء على عمود واحد على الأقل في الجدول.', icon: 'error', confirmButtonText: 'إغلاق' });
                 return;
@@ -839,7 +844,7 @@
                 let placeholderText = `أدخل ${col}...`;
                 const lowerCol = col.toLowerCase();
                 if (lowerCol.includes('نوع') || lowerCol.includes('صنف') || lowerCol.includes('منتج')) {
-                    placeholderText = 'مثال: طوب الي مصمت';
+                    placeholderText = 'مثال: بلوك خرساني';
                 } else if (lowerCol.includes('مقاس')) {
                     placeholderText = 'مثال: 25*12*6';
                 } else if (lowerCol.includes('حمول') || lowerCol.includes('وحد')) {

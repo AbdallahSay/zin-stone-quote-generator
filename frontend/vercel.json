@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "factory-quote-frontend",
+  "name": "zin-stone-quote-generator",
   "cleanUrls": true,
   "rewrites": [
     { "source": "/", "destination": "/index.html" },

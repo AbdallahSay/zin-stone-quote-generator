@@ -1,14 +1,13 @@
 /**
- * Production & Development Configuration for Factory Quote Generation System Frontend
+ * ZIN STONE Quotation System - Client Configuration
+ * Supports Local Development, Netlify Frontend, and Render Backend.
  */
 const CONFIG = {
-    // Priority:
-    // 1. window.ENV_API_URL (if injected dynamically)
-    // 2. Localhost development API (http://127.0.0.1:5000)
-    // 3. MonsterASP.NET Production API URL
     API_BASE_URL: window.ENV_API_URL || (
         window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
             ? 'http://127.0.0.1:5000'
-            : 'https://factory-quote.runasp.net'
+            : (window.location.hostname.endsWith('onrender.com') 
+                ? window.location.origin 
+                : 'https://zin-stone-api.onrender.com')
     )
 };

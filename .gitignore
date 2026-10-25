@@ -52,15 +52,12 @@ app/
 generated_quotes/
 output/
 scripts/
-tests/
 deploy_monsterasp.py
 execute_remote_sql.py
 migration_refactor_clients_products.sql
 monsterasp_drop_and_create.sql
 monsterasp_schema.sql
 test_*.py
-Dockerfile
-.dockerignore
 requirements*.txt
 pyproject.toml
 quotes.db

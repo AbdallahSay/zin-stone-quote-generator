@@ -1,11 +1,18 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using FactoryQuoteApi.Data;
 using FactoryQuoteApi.Models;
 using FactoryQuoteApi.Services;
-// Use pure managed networking for SQL Client to avoid native SNI.dll dependencies
+
+// Use pure managed networking for SQL Client if Windows SQL Server is used
 AppContext.SetSwitch("Switch.Microsoft.Data.SqlClient.UseManagedNetworkingOnWindows", true);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure dynamic listening port for Render (PORT env) or local default
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 // Add services to the container.
 builder.Services.AddControllers()
@@ -14,16 +21,39 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 
-// Configure SQL Server DbContext
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+// Configure Database (PostgreSQL / Supabase, SQLite for testing, or SQL Server fallback)
+var rawConnection = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
+    ?? string.Empty;
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString));
+{
+    var conn = rawConnection.Trim();
+    if (conn.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
+        conn.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) ||
+        (conn.Contains("Host=", StringComparison.OrdinalIgnoreCase) && conn.Contains("Port=", StringComparison.OrdinalIgnoreCase)))
+    {
+        var npgsqlString = ParsePostgresConnectionString(conn);
+        options.UseNpgsql(npgsqlString, npgsqlOptions =>
+        {
+            npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 3);
+        });
+    }
+    else
+    {
+        options.UseSqlServer(conn);
+    }
+});
 
 // Register HTTP Client Factory
 builder.Services.AddHttpClient();
 
+// Register Storage and WhatsApp Services
+builder.Services.AddScoped<IDocumentStorageService, SupabaseDocumentStorageService>();
+builder.Services.AddScoped<IWhatsAppDeliveryService, WhatsAppDeliveryService>();
+
 // Register Application Services
-builder.Services.AddScoped<IWordQuoteGeneratorService, WordQuoteGeneratorService>();
+builder.Services.AddScoped<IWordQuoteGeneratorService, ZinStoneWordQuoteGeneratorService>();
 builder.Services.AddScoped<IPdfConverterService, PdfConverterService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ISecurityService, SecurityService>();
@@ -35,19 +65,28 @@ builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>(sp => n
 builder.Services.AddHostedService<QueuedHostedService>();
 builder.Services.AddHostedService<TelegramOutboxBackgroundService>();
 
-// Configure CORS for Vercel Frontend
+// Configure CORS for Netlify, Render, and Vercel Frontends
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("VercelCorsPolicy", policy =>
+    options.AddPolicy("ZinStoneCorsPolicy", policy =>
     {
         policy.SetIsOriginAllowed(origin =>
         {
             if (string.IsNullOrWhiteSpace(origin)) return false;
-            var uri = new Uri(origin);
-            return uri.Host.EndsWith("vercel.app", StringComparison.OrdinalIgnoreCase) ||
-                   uri.Host.EndsWith("runasp.net", StringComparison.OrdinalIgnoreCase) ||
-                   uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
-                   uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+            try
+            {
+                var uri = new Uri(origin);
+                return uri.Host.EndsWith("netlify.app", StringComparison.OrdinalIgnoreCase) ||
+                       uri.Host.EndsWith("onrender.com", StringComparison.OrdinalIgnoreCase) ||
+                       uri.Host.EndsWith("vercel.app", StringComparison.OrdinalIgnoreCase) ||
+                       uri.Host.EndsWith("runasp.net", StringComparison.OrdinalIgnoreCase) ||
+                       uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                       uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
         })
         .AllowAnyHeader()
         .AllowAnyMethod()
@@ -59,7 +98,13 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Ensure Database is created and Seed initial data
+// Configure Forwarded Headers for reverse-proxy HTTPS behind Render / Netlify
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
+// Ensure Database is created and schema initialized
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -67,11 +112,37 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var db = services.GetRequiredService<ApplicationDbContext>();
-        logger.LogInformation("Ensuring SQL Server database is created...");
+        logger.LogInformation("Ensuring database is created and schema up-to-date...");
         db.Database.EnsureCreated();
 
-        // Additive schema upgrades for F15 metadata
-        if (db.Database.IsSqlServer())
+        if (db.Database.IsNpgsql())
+        {
+            try
+            {
+                db.Database.ExecuteSqlRaw(@"
+                    ALTER TABLE ""Quotes"" ADD COLUMN IF NOT EXISTS ""PdfSha256"" VARCHAR(64) NULL;
+                    ALTER TABLE ""Quotes"" ADD COLUMN IF NOT EXISTS ""PdfSizeBytes"" BIGINT NULL;
+                    ALTER TABLE ""Quotes"" ADD COLUMN IF NOT EXISTS ""StorageFileName"" VARCHAR(260) NULL;
+                    ALTER TABLE ""Quotes"" ADD COLUMN IF NOT EXISTS ""DocxStorageFileName"" VARCHAR(260) NULL;
+
+                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""ClaimToken"" VARCHAR(100) NULL;
+                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""ClaimedAt"" TIMESTAMP WITH TIME ZONE NULL;
+                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""ClaimExpiresAt"" TIMESTAMP WITH TIME ZONE NULL;
+                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""NextRetryAt"" TIMESTAMP WITH TIME ZONE NULL;
+                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""LastAttemptAt"" TIMESTAMP WITH TIME ZONE NULL;
+                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""FileSha256"" VARCHAR(64) NULL;
+
+                    CREATE INDEX IF NOT EXISTS ""IX_QuoteTelegramDeliveries_Status_NextRetryAt"" 
+                    ON ""QuoteTelegramDeliveries"" (""Status"", ""NextRetryAt"");
+                ");
+                logger.LogInformation("PostgreSQL additive schema verified.");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not run additive schema upgrade SQL on PostgreSQL.");
+            }
+        }
+        else if (db.Database.IsSqlServer())
         {
             try
             {
@@ -108,7 +179,7 @@ using (var scope = app.Services.CreateScope())
                         ON QuoteTelegramDeliveries (Status, NextRetryAt);
                     END
                 ");
-                logger.LogInformation("Database additive schema upgrades checked.");
+                logger.LogInformation("SQL Server additive schema verified.");
             }
             catch (Exception ex)
             {
@@ -135,11 +206,7 @@ using (var scope = app.Services.CreateScope())
                         File.Copy(file, destPath, overwrite: false);
                         logger.LogInformation("Migrated historical quote document {FileName} to private storage.", fileName);
                     }
-                    try
-                    {
-                        File.Delete(file);
-                    }
-                    catch { }
+                    try { File.Delete(file); } catch { }
                 }
             }
         }
@@ -154,49 +221,7 @@ using (var scope = app.Services.CreateScope())
             logger.LogInformation("No initial users present. Users must be provisioned by the Owner.");
         }
 
-        // Seed Products
-        if (!db.Products.Any())
-        {
-            logger.LogInformation("Seeding initial Products...");
-            var products = new List<Product>
-            {
-                new() { ProductName = "طوب الي مصمت", Size = "25*12*6", Capacity = "1000", DefaultPrice = 1450.00m, IsActive = true },
-                new() { ProductName = "طوب مصمت عادي", Size = "25*12*6", Capacity = "1000", DefaultPrice = 1300.00m, IsActive = true },
-                new() { ProductName = "بلوك خرساني مفرغ", Size = "40*20*20", Capacity = "500", DefaultPrice = 3200.00m, IsActive = true }
-            };
-            db.Products.AddRange(products);
-            db.SaveChanges();
-        }
-
-        // Seed Clients
-        if (!db.Clients.Any())
-        {
-            logger.LogInformation("Seeding initial Clients...");
-            var salesUser = db.Users.FirstOrDefault(u => u.Role == "Sales");
-            var clients = new List<Client>
-            {
-                new()
-                {
-                    ClientName = "شركة اتريم للمقاولات والاعمال المتخصصة",
-                    ContactPerson = "م / سارة شريف",
-                    Phone = "+201012345678",
-                    Email = "sara@atreem.com",
-                    Address = "القاهرة - التجمع الخامس",
-                    CreatedById = salesUser?.Id
-                },
-                new()
-                {
-                    ClientName = "شركة النصر للتجارة والمقاولات",
-                    ContactPerson = "م / أحمد فؤاد",
-                    Phone = "+201198765432",
-                    Email = "ahmed@elnasr.com",
-                    Address = "الجيزة - مدينة 6 أكتوبر",
-                    CreatedById = salesUser?.Id
-                }
-            };
-            db.Clients.AddRange(clients);
-            db.SaveChanges();
-        }
+        // No other-company products or client data are seeded in ZIN STONE.
 
         // Initialize and Seed System Credentials (quote, admin, owner)
         var securityService = services.GetRequiredService<ISecurityService>();
@@ -222,13 +247,58 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseCors("VercelCorsPolicy");
+app.UseCors("ZinStoneCorsPolicy");
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRouting();
-app.UseCors("VercelCorsPolicy");
+app.UseCors("ZinStoneCorsPolicy");
 app.MapControllers();
 
-app.MapGet("/api/health", () => Results.Ok(new { status = "Factory Quote API Running", timestamp = DateTime.UtcNow }));
+app.MapGet("/api/health", () => Results.Ok(new
+{
+    status = "ZIN STONE Quote API Running",
+    environment = app.Environment.EnvironmentName,
+    storage = "Supabase Storage Ready",
+    database = "Supabase PostgreSQL Ready",
+    timestamp = DateTime.UtcNow
+}));
 
 app.Run();
+
+// Helper method to parse PostgreSQL URI (postgres://user:pass@host:port/dbname)
+static string ParsePostgresConnectionString(string input)
+{
+    if (!input.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) &&
+        !input.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+    {
+        return input;
+    }
+
+    try
+    {
+        var uri = new Uri(input);
+        var userInfo = uri.UserInfo.Split(':');
+        var user = Uri.UnescapeDataString(userInfo[0]);
+        var pass = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
+        var port = uri.Port > 0 ? uri.Port : 5432;
+        var database = uri.AbsolutePath.TrimStart('/');
+        if (string.IsNullOrEmpty(database)) database = "postgres";
+
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = uri.Host,
+            Port = port,
+            Database = database,
+            Username = user,
+            Password = pass,
+            SslMode = SslMode.Require,
+            Pooling = true
+        };
+
+        return builder.ConnectionString;
+    }
+    catch
+    {
+        return input;
+    }
+}

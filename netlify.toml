@@ -1,0 +1,33 @@
+# ==============================================================================
+# Netlify Configuration for ZIN STONE Frontend
+# Static HTML/CSS/JS with clean URL rewrites and security headers
+# ==============================================================================
+
+[build]
+  publish = "frontend"
+
+# SPA / Clean URL rewrites for dashboards
+[[redirects]]
+  from = "/admin"
+  to = "/admin.html"
+  status = 200
+
+[[redirects]]
+  from = "/owner"
+  to = "/owner.html"
+  status = 200
+
+[[redirects]]
+  from = "/"
+  to = "/index.html"
+  status = 200
+
+# Security and CORS Headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"

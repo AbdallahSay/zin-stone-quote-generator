@@ -22,6 +22,7 @@ public class QuotesController : ControllerBase
     private readonly IQuoteSequenceService _sequenceService;
     private readonly ITelegramDeliveryService _telegramService;
     private readonly INotificationService _notificationService;
+    private readonly IDocumentStorageService? _documentStorage;
 
     public QuotesController(
         ApplicationDbContext db,
@@ -34,7 +35,8 @@ public class QuotesController : ControllerBase
         ISecurityService securityService,
         IQuoteSequenceService sequenceService,
         ITelegramDeliveryService telegramService,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IDocumentStorageService? documentStorage = null)
     {
         _db = db;
         _wordGenerator = wordGenerator;
@@ -47,6 +49,7 @@ public class QuotesController : ControllerBase
         _sequenceService = sequenceService;
         _telegramService = telegramService;
         _notificationService = notificationService;
+        _documentStorage = documentStorage;
     }
 
     [HttpPost("generate")]
@@ -77,7 +80,7 @@ public class QuotesController : ControllerBase
             // 2. Extract Client & Project Details
             var clientName = !string.IsNullOrWhiteSpace(request.ClientName) 
                 ? request.ClientName.Trim() 
-                : "شركة اتريم للمقاولات والاعمال المتخصصة";
+                : string.Empty;
             var clientEmail = !string.IsNullOrWhiteSpace(request.ClientEmail) ? request.ClientEmail.Trim() : null;
             var clientPhone = !string.IsNullOrWhiteSpace(request.ClientPhone) ? request.ClientPhone.Trim() : null;
             var contactPerson = request.ContactPerson?.Trim() ?? string.Empty;
@@ -157,10 +160,10 @@ public class QuotesController : ControllerBase
             var pdfPath = Path.Combine(appDataQuotesDir, pdfStorageName);
 
             // Locate Template
-            var templatePath = Path.Combine(_env.ContentRootPath, "..", "Templates", "عرض سعر شركة اتريم.docx");
+            var templatePath = Path.Combine(_env.ContentRootPath, "Templates", "ZIN_STONE_Quotation.docx");
             if (!System.IO.File.Exists(templatePath))
             {
-                templatePath = Path.Combine(_env.ContentRootPath, "Templates", "عرض سعر شركة اتريم.docx");
+                templatePath = Path.Combine(_env.ContentRootPath, "..", "Templates", "ZIN_STONE_Quotation.docx");
             }
 
             // 5. Generate Word Document
@@ -177,6 +180,20 @@ public class QuotesController : ControllerBase
             // Generate scoped document capability tokens with 7-day validity (F03)
             var pdfToken = _securityService.GenerateDocumentToken(pdfStorageName, "pdf", user.Id, TimeSpan.FromDays(7));
             var docxToken = _securityService.GenerateDocumentToken(docxStorageName, "docx", user.Id, TimeSpan.FromDays(7));
+
+            // Upload to Supabase Storage if configured
+            if (_documentStorage != null)
+            {
+                try
+                {
+                    await _documentStorage.SaveDocumentAsync(docxPath, docxStorageName, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", HttpContext.RequestAborted);
+                    await _documentStorage.SaveDocumentAsync(pdfPath, pdfStorageName, "application/pdf", HttpContext.RequestAborted);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not upload documents to cloud storage; local file preserved.");
+                }
+            }
 
             // Generate URLs with signed capability tokens
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
@@ -330,10 +347,10 @@ public class QuotesController : ControllerBase
     [HttpGet("terms")]
     public IActionResult GetTerms()
     {
-        var templatePath = Path.Combine(_env.ContentRootPath, "..", "Templates", "عرض سعر شركة اتريم.docx");
+        var templatePath = Path.Combine(_env.ContentRootPath, "..", "Templates", "ZIN_STONE_Quotation.docx");
         if (!System.IO.File.Exists(templatePath))
         {
-            templatePath = Path.Combine(_env.ContentRootPath, "Templates", "عرض سعر شركة اتريم.docx");
+            templatePath = Path.Combine(_env.ContentRootPath, "Templates", "ZIN_STONE_Quotation.docx");
         }
 
         var terms = _wordGenerator.GetDefaultTerms(templatePath);
@@ -365,7 +382,7 @@ public class QuotesController : ControllerBase
             request.IssuerPrefix = WordQuoteGeneratorService.CleanArabicIssuerText(request.IssuerPrefix);
             var clientName = !string.IsNullOrWhiteSpace(request.ClientName) 
                 ? request.ClientName.Trim() 
-                : "شركة اتريم للمقاولات والاعمال المتخصصة";
+                : string.Empty;
             var projectName = !string.IsNullOrWhiteSpace(request.ProjectName) ? request.ProjectName.Trim() : string.Empty;
 
             var quoteItems = new List<QuoteItem>();
@@ -438,10 +455,10 @@ public class QuotesController : ControllerBase
             var docxPath = Path.Combine(appDataQuotesDir, docxFilename);
             var pdfPath = Path.Combine(appDataQuotesDir, pdfFilename);
 
-            var templatePath = Path.Combine(_env.ContentRootPath, "..", "Templates", "عرض سعر شركة اتريم.docx");
+            var templatePath = Path.Combine(_env.ContentRootPath, "Templates", "ZIN_STONE_Quotation.docx");
             if (!System.IO.File.Exists(templatePath))
             {
-                templatePath = Path.Combine(_env.ContentRootPath, "Templates", "عرض سعر شركة اتريم.docx");
+                templatePath = Path.Combine(_env.ContentRootPath, "..", "Templates", "ZIN_STONE_Quotation.docx");
             }
 
             await _wordGenerator.GenerateQuoteDocumentAsync(templatePath, docxPath, request, quoteNumber, totalAmount);

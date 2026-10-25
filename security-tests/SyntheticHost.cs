@@ -36,8 +36,26 @@ internal sealed class SyntheticHost
         Directory.CreateDirectory(Path.Combine(_root, "Templates"));
         Directory.CreateDirectory(Path.Combine(_root, "wwwroot"));
         Directory.CreateDirectory(Path.Combine(_root, "App_Data", "quotes"));
-        using (var doc = WordprocessingDocument.Create(Path.Combine(_root, "Templates", "عرض سعر شركة اتريم.docx"), DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
-            doc.AddMainDocumentPart().Document = new Document(new Body(new Paragraph(new Run(new Text("{{QuoteNumber}}")))));
+                var templateCandidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Templates", "ZIN_STONE_Quotation.docx"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "backend", "Templates", "ZIN_STONE_Quotation.docx"),
+            Path.Combine(Directory.GetCurrentDirectory(), "backend", "Templates", "ZIN_STONE_Quotation.docx"),
+            Path.Combine(Directory.GetCurrentDirectory(), "..", "backend", "Templates", "ZIN_STONE_Quotation.docx"),
+            @"e:\zin-stone-quote-generator\backend\Templates\ZIN_STONE_Quotation.docx",
+            @"e:\ZIN_STONE_Integration_Pack\backend\Templates\ZIN_STONE_Quotation.docx"
+        };
+        var foundTemplate = templateCandidates.FirstOrDefault(File.Exists);
+        if (foundTemplate != null)
+        {
+            File.Copy(foundTemplate, Path.Combine(_root, "Templates", "ZIN_STONE_Quotation.docx"), overwrite: true);
+            File.Copy(foundTemplate, Path.Combine(_root, "Templates", "عرض سعر شركة اتريم.docx"), overwrite: true);
+        }
+        else
+        {
+            using (var doc = WordprocessingDocument.Create(Path.Combine(_root, "Templates", "ZIN_STONE_Quotation.docx"), DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
+                doc.AddMainDocumentPart().Document = new Document(new Body(new Paragraph(new Run(new Text("{{QuoteNumber}}")))));
+        }
         await _connection.OpenAsync();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { ContentRootPath = _root, WebRootPath = "wwwroot", EnvironmentName = "SecurityTests" });
         builder.Configuration.Sources.Clear();
@@ -52,7 +70,7 @@ internal sealed class SyntheticHost
             .AddJsonOptions(o => o.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
         builder.Services.AddDbContext<ApplicationDbContext>(o => o.UseSqlite(_connection));
         builder.Services.AddScoped<ISecurityService, SecurityService>();
-        builder.Services.AddScoped<IWordQuoteGeneratorService, WordQuoteGeneratorService>();
+        builder.Services.AddScoped<IWordQuoteGeneratorService, ZinStoneWordQuoteGeneratorService>();
         builder.Services.AddSingleton<IPdfConverterService, SyntheticPdfConverter>();
         builder.Services.AddSingleton<IQuoteSequenceService, SyntheticSequence>();
         builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();

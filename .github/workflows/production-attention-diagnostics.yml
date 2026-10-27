@@ -1,0 +1,45 @@
+name: Production Attention Diagnostics
+on:
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: Public production backend base URL
+        required: true
+        default: https://zain-qoute.runasp.net
+      frontend_url:
+        description: Public production frontend base URL
+        required: true
+        default: https://zin-stone-quote-frontend.vercel.app
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Probe production endpoints without creating quotes
+        env:
+          BACKEND: ${{ inputs.backend_url }}
+          FRONTEND: ${{ inputs.frontend_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostic
+          for name in frontend backend_health; do
+            if [ "$name" = frontend ]; then url="${FRONTEND%/}/"; else url="${BACKEND%/}/api/health"; fi
+            echo "::group::$name"
+            status=$(curl --location --silent --show-error --max-time 20 --output "diagnostic/$name.body" --write-out '%{http_code}' "$url") || status=000
+            echo "$name HTTP status: $status" | tee "diagnostic/$name.status"
+            if [ "$status" = 000 ]; then echo "::warning::$name network error"; fi
+            if [ "$name" = frontend ] && [ "$status" != 200 ]; then echo "::warning::Frontend not returning 200"; fi
+            if [ "$name" = backend_health ] && [ "$status" != 200 ]; then echo "::warning::Backend health not returning 200"; fi
+            echo "::endgroup::"
+          done
+          printf '%s\n' 'This probe is read-only. It cannot confirm the deployed backend binary version or create a PDF without authorized test credentials.' > diagnostic/limitations.txt
+          rm -f diagnostic/*.body
+      - name: Upload diagnostic summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-attention-diagnostics
+          path: diagnostic/
+          retention-days: 7

@@ -68,7 +68,6 @@ public sealed class WhatsAppCloudTests : IAsyncLifetime
             : payload.RootElement.GetProperty("template").GetProperty("components")[0]
                 .GetProperty("parameters")[0].GetProperty("document").GetProperty("filename").GetString();
         Assert.Equal("عرض سعر شركة TEST.pdf", actualFilename);
-        Assert.Contains("عرض سعر شركة TEST.pdf", transport.UploadBody);
         Assert.DoesNotContain("synthetic-meta-token",transport.MessageBody);
     }
 

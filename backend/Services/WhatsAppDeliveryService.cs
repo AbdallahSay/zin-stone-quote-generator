@@ -49,6 +49,14 @@ public sealed class WhatsAppDeliveryService : IWhatsAppDeliveryService
         if (version is null || !Regex.IsMatch(version, @"^v\d+\.\d+$") || phoneId is null || !Regex.IsMatch(phoneId, @"^\d+$") ||
             string.IsNullOrWhiteSpace(token) || token.StartsWith('<') ||
             (!serviceWindow && (string.IsNullOrWhiteSpace(template) || string.IsNullOrWhiteSpace(language)))) return false;
+        // Resolve the official customer and optional project from the saved quotation.
+        // The disk filename remains immutable; only the WhatsApp attachment label changes.
+        var savedQuote = await _db.Quotes.AsNoTracking()
+            .Where(q => q.QuoteNumber == quoteNumber)
+            .Select(q => new { q.ClientName, q.ProjectName })
+            .SingleOrDefaultAsync(cancellationToken);
+        var attachmentName = QuoteDisplayFileName.BuildPdfName(
+            savedQuote?.ClientName ?? clientName, savedQuote?.ProjectName);
         var path = Path.Combine(_env.ContentRootPath, "App_Data", "quotes", documentUrl);
         if (!File.Exists(path)) return false;
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
@@ -78,7 +86,7 @@ public sealed class WhatsAppDeliveryService : IWhatsAppDeliveryService
                 form.Add(new StringContent("whatsapp"), "messaging_product");
                 var file = new ByteArrayContent(bytes);
                 file.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
-                form.Add(file, "file", documentUrl);
+                form.Add(file, "file", attachmentName);
                 attempt.UploadAttempts++;
                 using var upload = await client.PostAsync(baseUrl + "/media", form, cancellationToken);
                 if (upload.IsSuccessStatusCode)
@@ -95,11 +103,11 @@ public sealed class WhatsAppDeliveryService : IWhatsAppDeliveryService
             attempt.MediaId = mediaId;
             object payload = serviceWindow
                 ? new { messaging_product = "whatsapp", to = recipientPhone, type = "document",
-                    document = new { id = mediaId, filename = documentUrl, caption = $"TEST {quoteNumber}" } }
+                    document = new { id = mediaId, filename = attachmentName, caption = $"TEST {quoteNumber}" } }
                 : new { messaging_product = "whatsapp", to = recipientPhone, type = "template",
                     template = new { name = template, language = new { code = language },
                         components = new object[] { new { type = "header", parameters = new object[] {
-                            new { type = "document", document = new { id = mediaId, filename = documentUrl } } } },
+                            new { type = "document", document = new { id = mediaId, filename = attachmentName } } } },
                             new { type = "body", parameters = new object[] {
                                 new { type = "text", text = quoteNumber }, new { type = "text", text = clientName } } } } } };
             // A timeout/5xx may mean accepted delivery. Never automatically retry a document POST.

@@ -49,7 +49,7 @@ public sealed class ZinStoneWordQuoteGeneratorService : IWordQuoteGeneratorServi
         PopulateField(body, "اليوم", day);
         PopulateField(body, "التاريخ", quoteDate.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture));
         PopulateField(body, "السادة شركة", request.ClientName ?? string.Empty);
-        PopulateField(body, "عناية المهندس", request.ContactPerson ?? string.Empty);
+        PopulateAttention(body, request.ContactTitle, request.ContactPerson);
         PopulateProductRows(body, request);
         PopulateTerms(body, request.Terms);
         PopulateIssuer(body, "يوسف زين الدين", "المدير المسؤل", null);
@@ -69,17 +69,32 @@ public sealed class ZinStoneWordQuoteGeneratorService : IWordQuoteGeneratorServi
         return body is null ? new List<string>() : FindTerms(body).Terms.Select(t => ReadText(t)).ToList();
     }
 
-    public string SanitizeFileName(string? clientName, string? projectName, string fallback = "Quote")
-    {
-        var joined = string.Join(" ", new[] { clientName, projectName }
-            .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!.Trim()));
-        if (joined.Length == 0) return fallback;
+    public string SanitizeFileName(string? clientName, string? projectName, string fallback = "Quote") =>
+        QuoteDisplayFileName.BuildBaseName(clientName, projectName, fallback);
 
-        var forbidden = new HashSet<char>(Path.GetInvalidFileNameChars());
-        foreach (var ch in "\\/:*?\"<>|") forbidden.Add(ch);
-        var cleaned = new string(joined.Where(c => !forbidden.Contains(c) && !char.IsControl(c)).ToArray());
-        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-        return cleaned.Length == 0 ? fallback : cleaned;
+    private static void PopulateAttention(Body body, string? contactTitle, string? contactPerson)
+    {
+        // The source Word template uses "عناية المهندس" as a fixed label.
+        // Replace only that label's text, retaining its original Word run formatting.
+        var title = (contactTitle ?? string.Empty).Trim();
+        var allowed = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "المهندس", "المهندسة", "الأستاذ", "الأستاذة",
+            "السيد", "السيدة", "الدكتور", "الدكتورة"
+        };
+        if (string.IsNullOrWhiteSpace(title)) title = "المهندس";
+        if (!allowed.Contains(title))
+            throw new ArgumentException("Unsupported contact title.", nameof(contactTitle));
+
+        var paragraph = body.Elements<Paragraph>()
+            .FirstOrDefault(p => Normalize(ReadText(p)).StartsWith("عناية المهندس", StringComparison.Ordinal));
+        var labelText = paragraph?.Descendants<Text>()
+            .FirstOrDefault(t => t.Text.Contains("عناية المهندس", StringComparison.Ordinal));
+        if (labelText is null)
+            throw new InvalidOperationException("The ZIN STONE attention label has changed in the Word template.");
+
+        labelText.Text = labelText.Text.Replace("عناية المهندس", $"عناية {title}", StringComparison.Ordinal);
+        PopulateField(body, $"عناية {title}", contactPerson ?? string.Empty);
     }
 
     private static void PopulateField(Body body, string label, string value)

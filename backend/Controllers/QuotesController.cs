@@ -232,7 +232,7 @@ public class QuotesController : ControllerBase
 
             // Transactional Outbox: record intended approved recipients when quotation is created (F10)
             var activeRecipients = await _db.TelegramRecipients
-                .Where(r => r.IsActive)
+                .Where(r => r.IsActive && _configuration.GetValue<bool>("Telegram:Enabled"))
                 .OrderBy(r => r.Id)
                 .ToListAsync();
 
@@ -279,7 +279,8 @@ public class QuotesController : ControllerBase
             // 8. Automatic Telegram Quotation PDF Delivery (durable transactional outbox, F10)
             try
             {
-                await _telegramService.ProcessPendingOutboxAsync(quote.Id, pdfPath);
+                if (_configuration.GetValue<bool>("Telegram:Enabled"))
+                    await _telegramService.ProcessPendingOutboxAsync(quote.Id, pdfPath);
             }
             catch (Exception ex)
             {
@@ -340,7 +341,7 @@ public class QuotesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to generate quote.");
-            return StatusCode(500, new { message = "An error occurred while generating quote.", error = ex.Message });
+            return StatusCode(500, new { message = "An error occurred while generating quote.", error = "Document generation failed. Contact the administrator." });
         }
     }
 
@@ -483,7 +484,7 @@ public class QuotesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to generate quote preview.");
-            return StatusCode(500, new { message = "حدث خطأ أثناء معاينة عرض السعر.", error = ex.Message });
+            return StatusCode(500, new { message = "حدث خطأ أثناء معاينة عرض السعر.", error = "Document generation failed. Contact the administrator." });
         }
     }
 
@@ -607,6 +608,8 @@ public class QuotesController : ControllerBase
         }
 
         var cleanFileName = Path.GetFileName(Uri.UnescapeDataString(fileName));
+        if (!string.Equals(fileName, cleanFileName, StringComparison.Ordinal) || cleanFileName.Contains('\\') || cleanFileName.Contains(':'))
+            return BadRequest(new { message = "Invalid document name." });
         var ext = Path.GetExtension(cleanFileName).ToLowerInvariant();
         var extClean = ext.TrimStart('.');
 
@@ -664,7 +667,8 @@ public class QuotesController : ControllerBase
             {
                 if (cleanFileName.StartsWith("preview_", StringComparison.OrdinalIgnoreCase))
                 {
-                    isAuthorized = true;
+                    // Preview ownership is carried by its scoped capability token.
+                    return StatusCode(403, new { message = "A scoped preview link is required." });
                 }
                 else
                 {

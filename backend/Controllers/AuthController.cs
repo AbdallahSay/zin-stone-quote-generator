@@ -4,6 +4,7 @@ using FactoryQuoteApi.Services;
 namespace FactoryQuoteApi.Controllers;
 
 [ApiController]
+[Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("authentication")]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
@@ -42,6 +43,23 @@ public class AuthController : ControllerBase
         public string RecoveryKey { get; set; } = string.Empty;
         public string NewOwnerPassword { get; set; } = string.Empty;
         public string ConfirmPassword { get; set; } = string.Empty;
+    }
+
+    public class RotateOwnerPasswordRequestDto
+    {
+        public string CurrentPassword { get; set; } = "";
+        public string NewPassword { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+
+    [HttpPost("rotate-owner-password")]
+    public async Task<IActionResult> RotateOwnerPassword([FromBody] RotateOwnerPasswordRequestDto request)
+    {
+        var (authorized, _) = await _securityService.ValidateTokenAsync(ExtractBearerToken(), "owner");
+        if (!authorized) return Unauthorized();
+        if (request.NewPassword != request.ConfirmPassword || request.NewPassword.Length < 16) return BadRequest();
+        if (!await _securityService.RotateOwnerPasswordAsync(request.CurrentPassword, request.NewPassword)) return BadRequest();
+        return Ok(new { success = true, sessionsRevoked = true });
     }
 
     [HttpPost("login")]
@@ -178,9 +196,9 @@ public class AuthController : ControllerBase
             return BadRequest(new { success = false, message = "يرجى كتابة كلمة المرور الجديدة." });
         }
 
-        if (request.NewPassword.Length < 6)
+        if (request.NewPassword.Length < 12)
         {
-            return BadRequest(new { success = false, message = "يجب أن تكون كلمة المرور 6 أحرف على الأقل." });
+            return BadRequest(new { success = false, message = "يجب أن تكون كلمة المرور 12 حرفاً على الأقل." });
         }
 
         if (request.NewPassword != request.ConfirmPassword)

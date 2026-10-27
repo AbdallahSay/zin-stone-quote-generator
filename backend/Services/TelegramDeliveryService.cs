@@ -30,6 +30,7 @@ public class TelegramDeliveryService : ITelegramDeliveryService
 
     public async Task EnsureInitializedAsync()
     {
+        if (!_configuration.GetValue<bool>("Telegram:Enabled")) return;
         try
         {
             if (_db.Database.IsSqlServer())
@@ -97,47 +98,7 @@ public class TelegramDeliveryService : ITelegramDeliveryService
                 ");
             }
 
-            // One-time legacy recipient import: only perform when the table is completely empty.
-            // Never overwrite manual activation or deactivation on restart (F09).
-            var hasAnyRecipients = await _db.TelegramRecipients.AnyAsync();
-            if (!hasAnyRecipients)
-            {
-                var defaultRecipients = new (string ChatId, string DisplayName)[]
-                {
-                    ("5600249013", "إدارة المصنع (5600249013)"),
-                    ("1284402479", "إدارة المبيعات (1284402479)")
-                };
-
-                foreach (var (chatId, displayName) in defaultRecipients)
-                {
-                    _db.TelegramRecipients.Add(new TelegramRecipient
-                    {
-                        ChatId = chatId,
-                        DisplayName = displayName,
-                        IsActive = true,
-                        CreatedAt = DateTime.UtcNow
-                    });
-                }
-
-                // Also import any additional chat IDs from configuration if not already present
-                var configuredIds = GetConfiguredChatIds();
-                foreach (var cid in configuredIds)
-                {
-                    if (!defaultRecipients.Any(d => d.ChatId == cid))
-                    {
-                        _db.TelegramRecipients.Add(new TelegramRecipient
-                        {
-                            ChatId = cid,
-                            DisplayName = $"المستلم {cid}",
-                            IsActive = true,
-                            CreatedAt = DateTime.UtcNow
-                        });
-                    }
-                }
-
-                await _db.SaveChangesAsync();
-                _logger.LogInformation("Initial Telegram recipients seeded successfully.");
-            }
+            // Recipients are never imported or activated during startup.
         }
         catch (Exception ex)
         {
@@ -147,6 +108,7 @@ public class TelegramDeliveryService : ITelegramDeliveryService
 
     public async Task<int> ProcessPendingOutboxAsync(int? specificQuoteId = null, string? suggestedPdfPath = null, CancellationToken cancellationToken = default)
     {
+        if (!_configuration.GetValue<bool>("Telegram:Enabled")) return 0;
         var now = DateTime.UtcNow;
         var query = _db.QuoteTelegramDeliveries
             .Where(d => (d.Status == "Pending" || (d.Status == "Processing" && d.ClaimExpiresAt != null && d.ClaimExpiresAt < now))
@@ -482,6 +444,7 @@ public class TelegramDeliveryService : ITelegramDeliveryService
 
     public async Task<List<QuoteTelegramDeliveryResult>> SendQuoteDocumentAsync(int quoteId, string? pdfPath = null, string? specificChatId = null, CancellationToken cancellationToken = default)
     {
+        if (!_configuration.GetValue<bool>("Telegram:Enabled")) return new();
         var quote = await _db.Quotes
             .Include(q => q.TelegramDeliveries)
             .FirstOrDefaultAsync(q => q.Id == quoteId, cancellationToken);
@@ -525,6 +488,7 @@ public class TelegramDeliveryService : ITelegramDeliveryService
 
     public async Task<List<QuoteTelegramDeliveryResult>> RetryQuoteDeliveryAsync(int quoteId, string? specificChatId = null, bool allowNewRecipient = false, CancellationToken cancellationToken = default)
     {
+        if (!_configuration.GetValue<bool>("Telegram:Enabled")) return new();
         var quote = await _db.Quotes
             .Include(q => q.TelegramDeliveries)
             .FirstOrDefaultAsync(q => q.Id == quoteId, cancellationToken);
@@ -928,6 +892,7 @@ public class TelegramDeliveryService : ITelegramDeliveryService
 
     private string? GetBotToken()
     {
+        if (!_configuration.GetValue<bool>("Telegram:Enabled")) return null;
         var token = _configuration["Telegram:BotToken"]
                     ?? _configuration["Telegram__BotToken"]
                     ?? Environment.GetEnvironmentVariable("Telegram__BotToken")
@@ -944,7 +909,7 @@ public class TelegramDeliveryService : ITelegramDeliveryService
         var raw = _configuration["Telegram:ChatIds"]
                   ?? _configuration["Telegram__ChatIds"]
                   ?? Environment.GetEnvironmentVariable("Telegram__ChatIds")
-                  ?? "5600249013,1284402479";
+                  ?? string.Empty;
 
         var list = raw.Split(new[] { ',', ';', ' ', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                       .Select(s => s.Trim())
@@ -952,10 +917,7 @@ public class TelegramDeliveryService : ITelegramDeliveryService
                       .Distinct()
                       .ToList();
 
-        if (list.Count == 0)
-        {
-            list = new List<string> { "5600249013", "1284402479" };
-        }
+
 
         return list;
     }

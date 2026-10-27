@@ -1,18 +1,21 @@
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using FactoryQuoteApi.Data;
 using FactoryQuoteApi.Models;
 using FactoryQuoteApi.Services;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
-// Use pure managed networking for SQL Client if Windows SQL Server is used
+// Use pure managed networking for SQL Client to avoid native SNI.dll dependencies
 AppContext.SetSwitch("Switch.Microsoft.Data.SqlClient.UseManagedNetworkingOnWindows", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure dynamic listening port for Render (PORT env) or local default
-var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
-builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+// Configure dynamic listening port only if PORT env var is present (e.g. Docker/Render), never under IIS
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
 
 // Add services to the container.
 builder.Services.AddControllers()
@@ -21,36 +24,21 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 
-// Configure Database (PostgreSQL / Supabase, SQLite for testing, or SQL Server fallback)
-var rawConnection = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
+// Configure SQL Server DbContext
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? string.Empty;
 
+ProductionIsolation.ValidateConnection(connectionString, builder.Environment.IsProduction());
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-{
-    var conn = rawConnection.Trim();
-    if (conn.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
-        conn.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) ||
-        (conn.Contains("Host=", StringComparison.OrdinalIgnoreCase) && conn.Contains("Port=", StringComparison.OrdinalIgnoreCase)))
-    {
-        var npgsqlString = ParsePostgresConnectionString(conn);
-        options.UseNpgsql(npgsqlString, npgsqlOptions =>
-        {
-            npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 3);
-        });
-    }
-    else
-    {
-        options.UseSqlServer(conn);
-    }
-});
+    options.UseSqlServer(connectionString));
 
 // Register HTTP Client Factory
 builder.Services.AddHttpClient();
-
-// Register Storage and WhatsApp Services
-builder.Services.AddScoped<IDocumentStorageService, SupabaseDocumentStorageService>();
+builder.Services.AddHttpClient("WhatsAppMeta", client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<IWhatsAppDeliveryService, WhatsAppDeliveryService>();
+builder.Services.AddScoped<IDocumentStorageService, LocalDocumentStorageService>();
 
 // Register Application Services
 builder.Services.AddScoped<IWordQuoteGeneratorService, ZinStoneWordQuoteGeneratorService>();
@@ -63,48 +51,35 @@ builder.Services.AddScoped<ITelegramDeliveryService, TelegramDeliveryService>();
 // Register Background Queue
 builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
 builder.Services.AddHostedService<QueuedHostedService>();
-builder.Services.AddHostedService<TelegramOutboxBackgroundService>();
+if (builder.Configuration.GetValue<bool>("Telegram:Enabled") &&
+    builder.Configuration.GetValue<bool>("Telegram:OutboxWorkerEnabled"))
+    builder.Services.AddHostedService<TelegramOutboxBackgroundService>();
 
-// Configure CORS for Netlify, Render, and Vercel Frontends
+// Configure CORS for Vercel Frontend and MonsterASP.NET
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ZinStoneCorsPolicy", policy =>
     {
-        policy.SetIsOriginAllowed(origin =>
-        {
-            if (string.IsNullOrWhiteSpace(origin)) return false;
-            try
-            {
-                var uri = new Uri(origin);
-                return uri.Host.EndsWith("netlify.app", StringComparison.OrdinalIgnoreCase) ||
-                       uri.Host.EndsWith("onrender.com", StringComparison.OrdinalIgnoreCase) ||
-                       uri.Host.EndsWith("vercel.app", StringComparison.OrdinalIgnoreCase) ||
-                       uri.Host.EndsWith("runasp.net", StringComparison.OrdinalIgnoreCase) ||
-                       uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
-                       uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
-        })
-        .AllowAnyHeader()
+        var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+        if (origins.Length > 0) policy.WithOrigins(origins);
+        policy        .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials();
     });
 });
 
 builder.Services.AddOpenApi();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = 429;
+    options.AddPolicy("authentication", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+        { PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
 
 var app = builder.Build();
 
-// Configure Forwarded Headers for reverse-proxy HTTPS behind Render / Netlify
-app.UseForwardedHeaders(new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
-
-// Ensure Database is created and schema initialized
+// Ensure Database is created and Seed initial data
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -112,37 +87,14 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var db = services.GetRequiredService<ApplicationDbContext>();
-        logger.LogInformation("Ensuring database is created and schema up-to-date...");
-        db.Database.EnsureCreated();
+        logger.LogInformation("Ensuring SQL Server database is created...");
+        if (app.Environment.IsProduction())
+            await ProductionIsolation.VerifyConnectedDatabaseAsync(db);
+        else
+            db.Database.EnsureCreated();
 
-        if (db.Database.IsNpgsql())
-        {
-            try
-            {
-                db.Database.ExecuteSqlRaw(@"
-                    ALTER TABLE ""Quotes"" ADD COLUMN IF NOT EXISTS ""PdfSha256"" VARCHAR(64) NULL;
-                    ALTER TABLE ""Quotes"" ADD COLUMN IF NOT EXISTS ""PdfSizeBytes"" BIGINT NULL;
-                    ALTER TABLE ""Quotes"" ADD COLUMN IF NOT EXISTS ""StorageFileName"" VARCHAR(260) NULL;
-                    ALTER TABLE ""Quotes"" ADD COLUMN IF NOT EXISTS ""DocxStorageFileName"" VARCHAR(260) NULL;
-
-                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""ClaimToken"" VARCHAR(100) NULL;
-                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""ClaimedAt"" TIMESTAMP WITH TIME ZONE NULL;
-                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""ClaimExpiresAt"" TIMESTAMP WITH TIME ZONE NULL;
-                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""NextRetryAt"" TIMESTAMP WITH TIME ZONE NULL;
-                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""LastAttemptAt"" TIMESTAMP WITH TIME ZONE NULL;
-                    ALTER TABLE ""QuoteTelegramDeliveries"" ADD COLUMN IF NOT EXISTS ""FileSha256"" VARCHAR(64) NULL;
-
-                    CREATE INDEX IF NOT EXISTS ""IX_QuoteTelegramDeliveries_Status_NextRetryAt"" 
-                    ON ""QuoteTelegramDeliveries"" (""Status"", ""NextRetryAt"");
-                ");
-                logger.LogInformation("PostgreSQL additive schema verified.");
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Could not run additive schema upgrade SQL on PostgreSQL.");
-            }
-        }
-        else if (db.Database.IsSqlServer())
+        // Additive schema upgrades for metadata
+        if (!app.Environment.IsProduction() && db.Database.IsSqlServer())
         {
             try
             {
@@ -195,7 +147,7 @@ using (var scope = app.Services.CreateScope())
             var privateDir = Path.Combine(app.Environment.ContentRootPath, "App_Data", "quotes");
             Directory.CreateDirectory(privateDir);
 
-            if (Directory.Exists(legacyDir))
+            if (!app.Environment.IsProduction() && Directory.Exists(legacyDir))
             {
                 foreach (var file in Directory.GetFiles(legacyDir))
                 {
@@ -221,8 +173,6 @@ using (var scope = app.Services.CreateScope())
             logger.LogInformation("No initial users present. Users must be provisioned by the Owner.");
         }
 
-        // No other-company products or client data are seeded in ZIN STONE.
-
         // Initialize and Seed System Credentials (quote, admin, owner)
         var securityService = services.GetRequiredService<ISecurityService>();
         await securityService.EnsureInitializedAsync();
@@ -235,9 +185,10 @@ using (var scope = app.Services.CreateScope())
         var telegramService = services.GetRequiredService<ITelegramDeliveryService>();
         await telegramService.EnsureInitializedAsync();
     }
-    catch (Exception ex)
+    catch (Exception)
     {
-        logger.LogError(ex, "An error occurred while initializing or seeding the database.");
+        logger.LogError("Database initialization failed.");
+        throw;
     }
 }
 
@@ -247,58 +198,17 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseCors("ZinStoneCorsPolicy");
-app.UseDefaultFiles();
-app.UseStaticFiles();
+// Private document routes must bypass static file serving and reach authorization.
+app.UseWhen(context => !context.Request.Path.StartsWithSegments("/quotes"), branch =>
+{
+    branch.UseDefaultFiles();
+    branch.UseStaticFiles();
+});
 app.UseRouting();
+app.UseRateLimiter();
 app.UseCors("ZinStoneCorsPolicy");
 app.MapControllers();
 
-app.MapGet("/api/health", () => Results.Ok(new
-{
-    status = "ZIN STONE Quote API Running",
-    environment = app.Environment.EnvironmentName,
-    storage = "Supabase Storage Ready",
-    database = "Supabase PostgreSQL Ready",
-    timestamp = DateTime.UtcNow
-}));
-
+app.MapGet("/api/health/live", () => Results.Ok(new { process = "available" }));
+app.MapGet("/api/health", ReadinessHealth.CheckAsync);
 app.Run();
-
-// Helper method to parse PostgreSQL URI (postgres://user:pass@host:port/dbname)
-static string ParsePostgresConnectionString(string input)
-{
-    if (!input.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) &&
-        !input.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
-    {
-        return input;
-    }
-
-    try
-    {
-        var uri = new Uri(input);
-        var userInfo = uri.UserInfo.Split(':');
-        var user = Uri.UnescapeDataString(userInfo[0]);
-        var pass = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
-        var port = uri.Port > 0 ? uri.Port : 5432;
-        var database = uri.AbsolutePath.TrimStart('/');
-        if (string.IsNullOrEmpty(database)) database = "postgres";
-
-        var builder = new NpgsqlConnectionStringBuilder
-        {
-            Host = uri.Host,
-            Port = port,
-            Database = database,
-            Username = user,
-            Password = pass,
-            SslMode = SslMode.Require,
-            Pooling = true
-        };
-
-        return builder.ConnectionString;
-    }
-    catch
-    {
-        return input;
-    }
-}

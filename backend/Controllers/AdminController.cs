@@ -1065,7 +1065,15 @@ public class AdminController : ControllerBase
     private async Task<int> GetFallbackAdminUserIdAsync()
     {
         var admin = await _db.Users.FirstOrDefaultAsync(u => u.Role == "Admin") ?? await _db.Users.FirstOrDefaultAsync();
-        return admin?.Id ?? 1;
+        if (admin != null) return admin.Id;
+        // A fresh dedicated database has no employee with id=1. Persist an inactive,
+        // non-login audit identity instead of writing an invented foreign key.
+        var actor = new User { FullName = "ZIN STONE system administration", Email = "system-audit@zinstone.invalid",
+            Role = "System", IsActive = false,
+            PasswordHash = _securityService.HashPassword(Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64))) };
+        _db.Users.Add(actor);
+        await _db.SaveChangesAsync();
+        return actor.Id;
     }
 
     private async Task<bool> IsAuthorizedOwnerAsync()

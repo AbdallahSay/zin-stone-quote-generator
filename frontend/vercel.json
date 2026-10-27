@@ -1,9 +1,5 @@
 {
-  "version": 2,
-  "name": "zin-stone-quote-generator",
-  "cleanUrls": true,
   "rewrites": [
-    { "source": "/", "destination": "/index.html" },
     { "source": "/admin", "destination": "/admin.html" },
     { "source": "/owner", "destination": "/owner.html" }
   ],

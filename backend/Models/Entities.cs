@@ -11,6 +11,7 @@ public class User
     [Required, MaxLength(150)]
     public string Email { get; set; } = string.Empty;
     [Required]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string PasswordHash { get; set; } = string.Empty;
     [Required, MaxLength(50)]
     public string Role { get; set; } = "Sales"; // Admin or Sales

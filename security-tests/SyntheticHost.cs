@@ -22,6 +22,8 @@ namespace FactoryQuoteApi.SecurityTests;
 // Production Program/startup/configuration and all real notification transports are excluded.
 internal sealed class SyntheticHost
 {
+    private readonly bool _telegramEnabled;
+    internal SyntheticHost(bool telegramEnabled = true) => _telegramEnabled = telegramEnabled;
     internal const string SigningKey = "synthetic-security-test-key-000000000000000000000000";
     private readonly string _root = Path.Combine(Path.GetTempPath(), "factory-sec01-" + Guid.NewGuid().ToString("N"));
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
@@ -61,6 +63,7 @@ internal sealed class SyntheticHost
         builder.Configuration.Sources.Clear();
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> {
             ["Security:SigningKey"] = SigningKey,
+            ["Telegram:Enabled"] = _telegramEnabled.ToString(),
             ["Telegram:BotToken"] = "123456:synthetic-not-a-real-token",
             ["Telegram:ChatIds"] = "synthetic-chat"
         });

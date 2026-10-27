@@ -461,7 +461,7 @@
 
         async function loadClients() {
             try {
-                const res = await fetch(`${CONFIG.API_BASE_URL}/api/clients`);
+                const res = await fetch(`${CONFIG.API_BASE_URL}/api/clients`, { headers: Auth.getAuthHeader('employee') });
                 if (!res.ok) return;
                 clientsList = await res.json();
                 
@@ -504,7 +504,7 @@
 
         async function loadProducts() {
             try {
-                const res = await fetch(`${CONFIG.API_BASE_URL}/api/products`);
+                const res = await fetch(`${CONFIG.API_BASE_URL}/api/products`, { headers: Auth.getAuthHeader('employee') });
                 if (!res.ok) return;
                 productsList = await res.json();
                 

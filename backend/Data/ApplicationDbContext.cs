@@ -18,6 +18,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<SystemCredential> SystemCredentials => Set<SystemCredential>();
     public DbSet<QuoteTelegramDelivery> QuoteTelegramDeliveries => Set<QuoteTelegramDelivery>();
     public DbSet<TelegramRecipient> TelegramRecipients => Set<TelegramRecipient>();
+    public DbSet<WhatsAppDeliveryAttempt> WhatsAppDeliveryAttempts => Set<WhatsAppDeliveryAttempt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -52,7 +52,7 @@ public sealed class ZinStoneWordQuoteGeneratorService : IWordQuoteGeneratorServi
         PopulateField(body, "عناية المهندس", request.ContactPerson ?? string.Empty);
         PopulateProductRows(body, request);
         PopulateTerms(body, request.Terms);
-        PopulateIssuer(body, request.IssuerName, request.IssuerJobTitle, request.IssuerPrefix);
+        PopulateIssuer(body, "يوسف زين الدين", "المدير المسؤل", null);
 
         // Quote number remains in SQL/audit/PDF filename, because the supplied layout
         // has no visual quote-number field; don't add elements the client didn't request.

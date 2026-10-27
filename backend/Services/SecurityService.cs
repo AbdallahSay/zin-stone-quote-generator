@@ -27,17 +27,9 @@ public class SecurityService : ISecurityService
         var keyString = _configuration["Security:SigningKey"] 
                         ?? _configuration["Security:JwtSecret"];
 
-        if (string.IsNullOrWhiteSpace(keyString))
-        {
-            keyString = "FactoryQuote_Prod_HMAC_SecretKey_2026_!#SafeMasterKey99";
-        }
-
-        if (!ValidateSigningKeyStrength(keyString, out var reason))
-        {
-            _logger.LogWarning("Security Warning: Insecure signing key detected: {Reason}", reason);
-        }
-
-        _signingKey = Encoding.UTF8.GetBytes(keyString.Trim());
+        if (!ValidateSigningKeyStrength(keyString, out _))
+            throw new InvalidOperationException("A dedicated, strong ZIN STONE signing key is required.");
+        _signingKey = Encoding.UTF8.GetBytes(keyString!.Trim());
 
         // Key Rotation: support accepting tokens signed with previous keys
         var prevKeysConfig = _configuration["Security:PreviousSigningKeys"];
@@ -75,6 +67,7 @@ public class SecurityService : ISecurityService
             "<YOUR_HMAC_SIGNING_SECRET>",
             "<CONFIGURED_IN_PROD_ENV>",
             "FactoryQuote_Fallback_Secret_Key_ChangeInProduction_2026",
+            "FactoryQuote_Prod_HMAC_SecretKey",
             "changeme",
             "placeholder",
             "12345678"
@@ -135,7 +128,7 @@ public class SecurityService : ISecurityService
             if (!hasAdmin)
             {
                 var configuredAdminPassword = _configuration["Security:DefaultAdminPassword"];
-                if (!string.IsNullOrWhiteSpace(configuredAdminPassword) && !configuredAdminPassword.StartsWith("<"))
+                if (!string.IsNullOrWhiteSpace(configuredAdminPassword) && !configuredAdminPassword.StartsWith("<") && configuredAdminPassword.Length >= 16)
                 {
                     _db.SystemCredentials.Add(new SystemCredential
                     {
@@ -155,7 +148,7 @@ public class SecurityService : ISecurityService
             if (!hasOwner)
             {
                 var configuredOwnerPassword = _configuration["Security:DefaultOwnerPassword"];
-                if (!string.IsNullOrWhiteSpace(configuredOwnerPassword) && !configuredOwnerPassword.StartsWith("<"))
+                if (!string.IsNullOrWhiteSpace(configuredOwnerPassword) && !configuredOwnerPassword.StartsWith("<") && configuredOwnerPassword.Length >= 16)
                 {
                     _db.SystemCredentials.Add(new SystemCredential
                     {
@@ -468,9 +461,9 @@ public class SecurityService : ISecurityService
             return (false, "يمكن تغيير كلمة مرور لوحة الإدارة فقط");
         }
 
-        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 6)
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 12)
         {
-            return (false, "يجب أن تكون كلمة المرور 6 أحرف على الأقل");
+            return (false, "يجب أن تكون كلمة المرور 12 حرفاً على الأقل");
         }
 
         var cred = await _db.SystemCredentials.FirstOrDefaultAsync(s => s.Role == normalizedRole);
@@ -492,6 +485,21 @@ public class SecurityService : ISecurityService
         _logger.LogInformation("Password successfully updated and sessions invalidated for role: {Role}", normalizedRole);
 
         return (true, null);
+    }
+
+    public async Task<bool> RotateOwnerPasswordAsync(string currentPassword, string newPassword)
+    {
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 16) return false;
+        var credential = await _db.SystemCredentials.SingleOrDefaultAsync(c => c.Role == "owner");
+        if (credential is null || !VerifyPassword(currentPassword, credential.PasswordHash)) return false;
+        credential.PasswordHash = HashPassword(newPassword);
+        credential.SessionSalt = Guid.NewGuid().ToString("N");
+        credential.UpdatedAt = DateTime.UtcNow;
+        var auditUser = await _db.Users.OrderBy(u => u.Id).FirstOrDefaultAsync();
+        if (auditUser is not null)
+            _db.AuditLogs.Add(new AuditLog { UserId = auditUser.Id, Action = "OwnerCredentialRotated", EntityId = "owner", Timestamp = DateTime.UtcNow });
+        await _db.SaveChangesAsync();
+        return true;
     }
 
     public async Task<(bool Success, string? ErrorMessage)> ProvisionInitialOwnerAsync(string bootstrapToken, string ownerPassword)

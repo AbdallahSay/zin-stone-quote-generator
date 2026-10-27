@@ -37,6 +37,7 @@ public class NotificationService : INotificationService
         string pdfFilePath,
         CancellationToken cancellationToken = default)
     {
+        if (!_configuration.GetValue<bool>("Email:Enabled")) return;
         if (string.IsNullOrWhiteSpace(toEmail))
         {
             _logger.LogWarning("Email address is empty. Skipping email notification for quote {QuoteNumber}.", quoteNumber);
@@ -47,8 +48,8 @@ public class NotificationService : INotificationService
         var smtpPort = _configuration.GetValue<int>("Smtp:Port", 587);
         var smtpUser = _configuration["Smtp:Username"];
         var smtpPass = _configuration["Smtp:Password"];
-        var fromEmail = _configuration["Smtp:FromEmail"] ?? "sales@factory-eg.com";
-        var fromName = _configuration["Smtp:FromName"] ?? "مصنع الطوب الآلي والخرسانة";
+        var fromEmail = _configuration["Smtp:FromEmail"] ?? "info@zinstone.example";
+        var fromName = _configuration["Smtp:FromName"] ?? "ZIN STONE";
 
         if (string.IsNullOrWhiteSpace(smtpHost))
         {
@@ -88,7 +89,7 @@ public class NotificationService : INotificationService
             await client.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.Auto, cancellationToken);
             if (!string.IsNullOrEmpty(smtpUser))
             {
-                await client.AuthenticateAsync(smtpUser, smtpPass, cancellationToken);
+                await client.AuthenticateAsync(smtpUser, smtpPass ?? "", cancellationToken);
             }
             await client.SendAsync(message, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
@@ -103,6 +104,8 @@ public class NotificationService : INotificationService
 
     public async Task SendWhatsAppWebhookAsync(WebhookPayloadDto payload, CancellationToken cancellationToken = default)
     {
+        // Legacy webhooks are retired. Meta delivery requires a separate explicit test action.
+        if (!_configuration.GetValue<bool>("WhatsApp:LegacyWebhookEnabled")) return;
         var webhookUrl = _configuration["Webhooks:WhatsAppUrl"];
         if (string.IsNullOrWhiteSpace(webhookUrl))
         {

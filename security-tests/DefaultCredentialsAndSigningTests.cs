@@ -74,7 +74,7 @@ public sealed class DefaultCredentialsAndSigningTests : IAsyncLifetime
     [Fact]
     public void SigningKey_Validation_Accepts_Strong_HighEntropy_Key()
     {
-        string strongKey = "FactoryQuote_Prod_HMAC_SecretKey_2026_!#SafeMasterKey99";
+        string strongKey = "Independent_ZinStone_Test_Key_With_Enough_Entropy_2026!";
         bool isValid = SecurityService.ValidateSigningKeyStrength(strongKey, out string? reason);
         Assert.True(isValid);
         Assert.Null(reason);

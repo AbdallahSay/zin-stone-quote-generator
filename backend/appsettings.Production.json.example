@@ -1,29 +1,39 @@
 {
-  "Logging": {
-    "LogLevel": {
-      "Default": "Warning",
-      "Microsoft.AspNetCore": "Warning"
-    }
-  },
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=db.<YOUR-PROJECT-REF>.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=<YOUR_PASSWORD>;SSL Mode=Require;"
-  },
-  "Supabase": {
-    "Url": "https://<YOUR-PROJECT-REF>.supabase.co",
-    "ServiceKey": "<YOUR_SUPABASE_SERVICE_ROLE_KEY>",
-    "Bucket": "quotes-private"
-  },
-  "WhatsApp": {
-    "Enabled": false
-  },
-  "Cors": {
-    "AllowedOrigins": [
-      "https://zin-stone-quote-generator.netlify.app",
-      "https://zin-stone-api.onrender.com"
-    ]
-  },
-  "Telegram": {
-    "BotToken": "<YOUR_TELEGRAM_BOT_TOKEN>",
-    "ChatIds": ""
-  }
+    "Logging":  {
+                    "LogLevel":  {
+                                     "Microsoft.EntityFrameworkCore.Database.Command":  "Warning",
+                                     "Default":  "Warning",
+                                     "Microsoft.AspNetCore":  "Warning"
+                                 }
+                },
+    "Cors":  {
+                 "AllowedOrigins":  [
+                                        "https://zin-stone-quote-frontend.vercel.app"
+                                    ]
+             },
+    "Security":  {
+                     "SigningKey":  "\u003cDEDICATED_RANDOM_64_BYTE_BASE64_KEY\u003e",
+                     "DefaultOwnerPassword":  "",
+                     "DefaultAdminPassword":  ""
+                 },
+    "WhatsApp":  {
+                     "PhoneNumberId":  "",
+                     "TestMode":  true,
+                     "AccessToken":  "",
+                     "ApprovedTestRecipients":  [
+
+                                                ],
+                     "WebhookEnabled":  false,
+                     "ApiVersion":  "",
+                     "Enabled":  false
+                 },
+    "Telegram":  {
+                     "OutboxWorkerEnabled":  false,
+                     "ChatIds":  "",
+                     "BotToken":  "",
+                     "Enabled":  false
+                 },
+    "ConnectionStrings":  {
+                              "DefaultConnection":  "Server=db76143.public.databaseasp.net;Database=db76143;User Id=\u003cDEDICATED_USER\u003e;Password=\u003cSECRET\u003e;Encrypt=True;TrustServerCertificate=False"
+                          }
 }

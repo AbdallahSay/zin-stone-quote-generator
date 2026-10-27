@@ -7,6 +7,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build, Test & Security Verification
@@ -15,15 +18,15 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: '10.0.x'
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
 
@@ -37,28 +40,23 @@ jobs:
           dotnet build backend/FactoryQuoteApi.csproj -c Release --no-restore
           dotnet build security-tests/FactoryQuoteApi.SecurityTests.csproj -c Release --no-restore
 
-      - name: Run Backend Security & Functional Tests (102 Tests)
+      - name: Run Backend Security & Functional Tests
         run: dotnet test security-tests/FactoryQuoteApi.SecurityTests.csproj -c Release --no-build
 
       - name: Run Frontend XSS & Security Regression Tests
-        run: node security-tests/xss-regression-tests.cjs
+        run: |
+          node security-tests/xss-regression-tests.cjs
+          node security-tests/isolation-source-tests.cjs
 
       - name: Validate Dockerfile Syntax
         run: docker build --target build -t zin-stone-api-build .
 
-      - name: Verify Production Health (Smoke Test)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        continue-on-error: true
-        run: |
-          API_URL="${{ vars.ZIN_STONE_API_URL || 'https://zin-stone-api.onrender.com' }}"
-          echo "Checking health for $API_URL/api/health..."
-          for i in {1..6}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/health" || true)
-            if [ "$STATUS" -eq 200 ]; then
-              echo "Production API is healthy!"
-              exit 0
-            fi
-            echo "Waiting for backend wakeup (attempt $i, status: $STATUS)..."
-            sleep 10
-          done
-          echo "Smoke check finished."
+      - name: Publish deployable IIS build
+        run: dotnet publish backend/FactoryQuoteApi.csproj -c Release --no-restore -o publish -p:SourceRevisionId=${{ github.sha }}
+
+      - name: Upload IIS release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zin-stone-iis-${{ github.sha }}
+          path: publish/
+          retention-days: 14

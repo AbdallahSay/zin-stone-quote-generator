@@ -37,11 +37,13 @@ appsettings.Production.json
 
 # Temporary and AI Artifacts
 .vercel/
+.netlify/
 .user_uploaded/
 .gemini/
 *.tmp
 scratch/
 prod_test_output/
+ui-tests/test-launch.cjs
 
 # Legacy Workspace Folders and Local Scripts
 FactoryQuoteApi/
@@ -61,4 +63,6 @@ test_*.py
 requirements*.txt
 pyproject.toml
 quotes.db
+**/TestResults/
+ui-tests/artifacts/
 seed.py

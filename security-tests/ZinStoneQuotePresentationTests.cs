@@ -44,7 +44,8 @@ public sealed class ZinStoneQuotePresentationTests
             var attention = Assert.Single(paragraphs.Where(t => t.StartsWith("عناية", StringComparison.Ordinal)));
             Assert.Contains("عناية " + selectedTitle, attention);
             Assert.Contains("سارة شريف", attention);
-            Assert.DoesNotContain("عناية المهندس :", attention.Replace("عناية " + selectedTitle, ""));
+            Assert.StartsWith("عناية " + selectedTitle + " :", attention);
+            if (selectedTitle != "المهندس") Assert.DoesNotContain("عناية المهندس :", attention);
         }
         finally
         {
@@ -57,7 +58,7 @@ public sealed class ZinStoneQuotePresentationTests
     [InlineData("الأفق", "الساحل", "عرض سعر شركة الأفق مشروع الساحل.pdf")]
     [InlineData("شركة الأفق", null, "عرض سعر شركة الأفق.pdf")]
     [InlineData("شركة النور", "", "عرض سعر شركة النور.pdf")]
-    [InlineData("شركة النور/الغد", "المشروع: الغد", "عرض سعر شركة النور الغد مشروع المشروع الغد.pdf")]
+    [InlineData("شركة النور/الغد", "مدينة النور: المرحلة الأولى", "عرض سعر شركة النور الغد مشروع مدينة النور المرحلة الأولى.pdf")]
     public void Friendly_pdf_name_includes_company_and_optional_project(string client, string? project, string expected)
         => Assert.Equal(expected, QuoteDisplayFileName.BuildPdfName(client, project));
 }

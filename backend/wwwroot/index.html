@@ -1151,6 +1151,17 @@
             const clientName = payload.clientName;
             const projectName = payload.projectName;
 
+            // Display name for shared PDFs; never change the immutable server storage filename.
+            const cleanAttachmentPart = (value) => String(value ?? '')
+                .replace(/[\\/:*?"<>|\u0000-\u001F]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .replace(/[. ]+$/g, '');
+            const fileCompany = cleanAttachmentPart(clientName).replace(/^شركة(?:\s+|$)/u, '').trim();
+            const fileProject = cleanAttachmentPart(projectName).replace(/^مشروع(?:\s+|$)/u, '').trim();
+            const attachmentBase = `عرض سعر شركة ${fileCompany}${fileProject ? ` مشروع ${fileProject}` : ''}`;
+            const pdfShareFileName = attachmentBase.slice(0, 140).trimEnd() + '.pdf';
+
             const btn = document.getElementById('generateBtn');
             const btnText = document.getElementById('generateBtnText');
             const spinner = document.getElementById('generateSpinner');
@@ -1203,7 +1214,7 @@
                 fetch(pdfUrl)
                     .then(res => res.blob())
                     .then(blob => {
-                        preloadedPdfFile = new File([blob], `${result.quoteNumber}.pdf`, { type: 'application/pdf' });
+                        preloadedPdfFile = new File([blob], pdfShareFileName, { type: 'application/pdf' });
                     })
                     .catch(err => {
                         console.warn('PDF preload failed:', err);
@@ -1226,7 +1237,7 @@
                             if (!pdfFile) {
                                 const res = await fetch(pdfUrl);
                                 const blob = await res.blob();
-                                pdfFile = new File([blob], `${result.quoteNumber}.pdf`, { type: 'application/pdf' });
+                                pdfFile = new File([blob], pdfShareFileName, { type: 'application/pdf' });
                                 preloadedPdfFile = pdfFile;
                             }
 

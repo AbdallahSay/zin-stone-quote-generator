@@ -63,6 +63,12 @@ public sealed class WhatsAppCloudTests : IAsyncLifetime
         Assert.Equal(2,transport.Requests); Assert.Contains("application/pdf",transport.UploadBody);
         using var payload = JsonDocument.Parse(transport.MessageBody);
         Assert.Equal(window ? "document" : "template",payload.RootElement.GetProperty("type").GetString());
+        var actualFilename = window
+            ? payload.RootElement.GetProperty("document").GetProperty("filename").GetString()
+            : payload.RootElement.GetProperty("template").GetProperty("components")[0]
+                .GetProperty("parameters")[0].GetProperty("document").GetProperty("filename").GetString();
+        Assert.Equal("عرض سعر شركة TEST.pdf", actualFilename);
+        Assert.Contains("عرض سعر شركة TEST.pdf", transport.UploadBody);
         Assert.DoesNotContain("synthetic-meta-token",transport.MessageBody);
     }
 

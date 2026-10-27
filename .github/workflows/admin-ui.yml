@@ -3,7 +3,9 @@ on:
   pull_request:
     paths:
       - 'frontend/admin.html'
+      - 'frontend/index.html'
       - 'backend/wwwroot/admin.html'
+      - 'backend/wwwroot/index.html'
       - 'ui-tests/**'
       - '.github/workflows/admin-ui.yml'
   workflow_dispatch:
@@ -41,6 +43,8 @@ jobs:
       - name: Responsive and functional browser matrix
         run: npm test
         working-directory: ui-tests
+      - name: Quotation responsive regression
+        run: node ui-tests/quotation-responsive.cjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

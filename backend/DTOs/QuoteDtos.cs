@@ -20,6 +20,7 @@ public class QuoteRequestDto
     [Required(ErrorMessage = "ClientName is required")]
     public string ClientName { get; set; } = string.Empty;
     public string? ContactPerson { get; set; }
+    [RegularExpression(@"^\s*(المهندس|المهندسة|الأستاذ|الأستاذة|السيد|السيدة|الدكتور|الدكتورة)?\s*$", ErrorMessage = "Unsupported contact title.")]
     public string? ContactTitle { get; set; }
     public string? IssuerName { get; set; }
     public string? IssuerJobTitle { get; set; }

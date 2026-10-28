@@ -10,6 +10,9 @@ on:
         description: Public production frontend base URL
         required: true
         default: https://zin-stone-quote-frontend.vercel.app
+      expected_backend_commit:
+        description: Expected backend Git SHA (blank uses this workflow's commit)
+        required: false
 permissions:
   contents: read
 jobs:
@@ -21,6 +24,7 @@ jobs:
         env:
           BACKEND: ${{ inputs.backend_url }}
           FRONTEND: ${{ inputs.frontend_url }}
+          EXPECTED: ${{ inputs.expected_backend_commit || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -30,15 +34,22 @@ jobs:
             echo "::group::$name"
             status=$(curl --location --silent --show-error --max-time 20 --output "diagnostic/$name.body" --write-out '%{http_code}' "$url") || status=000
             echo "$name HTTP status: $status" | tee "diagnostic/$name.status"
-            if [ "$status" = 000 ]; then echo "::warning::$name network error"; fi
-            if [ "$name" = frontend ] && [ "$status" != 200 ]; then echo "::warning::Frontend not returning 200"; fi
-            if [ "$name" = backend_health ] && [ "$status" != 200 ]; then echo "::warning::Backend health not returning 200"; fi
+            if [ "$status" != 200 ]; then echo "::error::$name not returning 200"; exit 1; fi
             echo "::endgroup::"
           done
-          printf '%s\n' 'This probe is read-only. It cannot confirm the deployed backend binary version or create a PDF without authorized test credentials.' > diagnostic/limitations.txt
+          version=$(jq -r '.version' diagnostic/backend_health.body)
+          echo "Backend version: $version; expected: $EXPECTED" | tee diagnostic/version.txt
+          test "$version" = "1.0.0+$EXPECTED" || { echo '::error::Backend deployment is outdated'; exit 1; }
+          curl --fail --silent --show-error --max-time 30 "${FRONTEND%/}/config.js" > diagnostic/config.js
+          grep -q 'https://zain-qoute.runasp.net' diagnostic/config.js
+          if grep -q 'site102307.siteasp.net' diagnostic/config.js; then echo '::error::Frontend targets the FTP host'; exit 1; fi
+          curl --fail --silent --show-error --max-time 30 -X OPTIONS "${BACKEND%/}/api/auth/login" -H "Origin: $FRONTEND" -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' -D diagnostic/cors.headers -o /dev/null
+          grep -qi "access-control-allow-origin: $FRONTEND" diagnostic/cors.headers
+          printf '%s\n' 'Read-only deployment/version/CORS probe. Authenticated document generation is verified separately with authorized credentials.' > diagnostic/limitations.txt
           rm -f diagnostic/*.body
       - name: Upload diagnostic summary
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: production-attention-diagnostics
           path: diagnostic/

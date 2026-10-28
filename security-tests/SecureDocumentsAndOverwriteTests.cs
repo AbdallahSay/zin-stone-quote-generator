@@ -180,10 +180,12 @@ public class SecureDocumentsAndOverwriteTests : IAsyncLifetime
         Assert.Equal(4, distinctStorageFiles);
     }
 
-    [Fact]
-    public async Task Content_Disposition_preserves_inline_for_pdf_and_readable_Arabic_filename()
+    [Theory]
+    [InlineData("مشروع الميناء", "عرض سعر شركة الإسكندرية مشروع الميناء.pdf")]
+    [InlineData("", "عرض سعر شركة الإسكندرية.pdf")]
+    public async Task Content_Disposition_preserves_inline_for_pdf_and_readable_Arabic_filename(string project, string expected)
     {
-        var q = await GenerateQuoteAsEmployee(101, "شركة الإسكندرية", "مشروع الميناء");
+        var q = await GenerateQuoteAsEmployee(101, "شركة الإسكندرية", project);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, q.PdfUrl);
         using var response = await _host.Client.SendAsync(request);
@@ -193,6 +195,7 @@ public class SecureDocumentsAndOverwriteTests : IAsyncLifetime
         Assert.NotNull(disp);
         Assert.Equal("inline", disp.DispositionType);
         Assert.Contains("EG-BLOCK", disp.FileName);
+        Assert.Equal(expected, disp.FileNameStar);
     }
 
     [Fact]

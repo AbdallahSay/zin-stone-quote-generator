@@ -17,6 +17,36 @@ public sealed class ZinStoneIsolationTests : IAsyncLifetime
     public Task InitializeAsync() => _host.StartAsync();
     public Task DisposeAsync() => _host.DisposeAsync();
 
+    [Theory]
+    [InlineData("generate")]
+    [InlineData("preview")]
+    public async Task Invalid_contact_title_is_a_client_error(string endpoint)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/quotes/" + endpoint) {
+            Content = JsonContent.Create(new QuoteRequestDto { ClientName = "TEST", ContactTitle = "غير صالح",
+                Items = [new() { ProductName = "TEST", Quantity = 1, UnitPrice = 1 }] }) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _host.EmployeeToken(101));
+        using var response = await _host.Client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _host.WithDb(async db => Assert.Equal(5, await db.Quotes.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Json_contact_title_binds_and_persists_without_defaulting()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/quotes/generate") {
+            Content = JsonContent.Create(new { clientName = "TEST TITLE CONTRACT", contactTitle = "المهندسة", contactPerson = "سهيلة",
+                items = new[] { new { productName = "TEST", quantity = 1, unitPrice = 1 } } }) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _host.EmployeeToken(101));
+        using var response = await _host.Client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _host.WithDb(async db => {
+            var quote = await db.Quotes.SingleAsync(q => q.ClientName == "TEST TITLE CONTRACT");
+            Assert.Equal("المهندسة", quote.ContactTitle);
+            Assert.Equal("سهيلة", quote.ContactPerson);
+        });
+    }
+
     [Fact]
     public async Task Disabled_telegram_never_schedules_sends_retries_or_imports_after_restart()
     {

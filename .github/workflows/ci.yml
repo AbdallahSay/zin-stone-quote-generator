@@ -47,6 +47,7 @@ jobs:
         run: |
           node security-tests/xss-regression-tests.cjs
           node security-tests/isolation-source-tests.cjs
+          node document-tests/frontend-contract.cjs
 
       - name: Validate Dockerfile Syntax
         run: docker build --target build -t zin-stone-api-build .

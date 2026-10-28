@@ -74,8 +74,9 @@ public sealed class ZinStoneWordQuoteGeneratorService : IWordQuoteGeneratorServi
 
     private static void PopulateAttention(Body body, string? contactTitle, string? contactPerson)
     {
-        // The source Word template uses "عناية المهندس" as a fixed label.
-        // Replace only that label's text, retaining its original Word run formatting.
+        // Word may split a visible label across text nodes/runs when it is edited.
+        // Locate the title in the combined text, then change only its characters;
+        // leave paragraph/run properties, punctuation and the template package intact.
         var title = (contactTitle ?? string.Empty).Trim();
         var allowed = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -86,14 +87,30 @@ public sealed class ZinStoneWordQuoteGeneratorService : IWordQuoteGeneratorServi
         if (!allowed.Contains(title))
             throw new ArgumentException("Unsupported contact title.", nameof(contactTitle));
 
-        var paragraph = body.Elements<Paragraph>()
+        var paragraph = body.Descendants<Paragraph>()
             .FirstOrDefault(p => Normalize(ReadText(p)).StartsWith("عناية المهندس", StringComparison.Ordinal));
-        var labelText = paragraph?.Descendants<Text>()
-            .FirstOrDefault(t => t.Text.Contains("عناية المهندس", StringComparison.Ordinal));
-        if (labelText is null)
+        var nodes = paragraph?.Descendants<Text>().ToList();
+        var text = nodes is null ? string.Empty : string.Concat(nodes.Select(t => t.Text));
+        var match = Regex.Match(text, @"عناية\s+(المهندس)(?=\s|:|$)");
+        if (!match.Success || nodes is null)
             throw new InvalidOperationException("The ZIN STONE attention label has changed in the Word template.");
 
-        labelText.Text = labelText.Text.Replace("عناية المهندس", $"عناية {title}", StringComparison.Ordinal);
+        var start = match.Groups[1].Index;
+        var end = start + match.Groups[1].Length;
+        var offset = 0;
+        foreach (var node in nodes)
+        {
+            var original = node.Text;
+            var nodeEnd = offset + original.Length;
+            if (offset < end && nodeEnd > start)
+            {
+                var from = Math.Max(0, start - offset);
+                var to = Math.Min(original.Length, end - offset);
+                node.Text = original[..from] + (offset <= start ? title : string.Empty) + original[to..];
+                node.Space = SpaceProcessingModeValues.Preserve;
+            }
+            offset = nodeEnd;
+        }
         PopulateField(body, $"عناية {title}", contactPerson ?? string.Empty);
     }
 
